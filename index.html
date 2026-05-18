@@ -34,7 +34,6 @@
       overflow-y: auto;
     }
 
-    /* Ambient glow blobs */
     body::before {
       content: '';
       position: fixed;
@@ -58,7 +57,6 @@
       z-index: 0;
     }
 
-    /* ─── SIDEBAR ─── */
     .sidebar {
       width: 270px;
       flex-shrink: 0;
@@ -66,7 +64,9 @@
       position: sticky;
       top: 0;
       overflow-y: auto;
-      
+      padding: 24px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
     }
 
     .logo {
@@ -134,7 +134,6 @@
       margin-bottom: 10px;
     }
 
-    /* PDF Upload Zone */
     .upload-zone {
       border: 1.5px dashed rgba(108,99,255,0.4);
       border-radius: 12px;
@@ -161,10 +160,7 @@
       height: 100%;
     }
 
-    .upload-icon {
-      font-size: 24px;
-      margin-bottom: 6px;
-    }
+    .upload-icon { font-size: 24px; margin-bottom: 6px; }
 
     .upload-zone p {
       font-size: 12px;
@@ -266,7 +262,6 @@
     .badge.teal   { background: rgba(34,211,238,0.1); color: #22d3ee; border: 1px solid rgba(34,211,238,0.2); }
     .badge.pink   { background: rgba(244,114,182,0.1); color: #f472b6; border: 1px solid rgba(244,114,182,0.2); }
 
-    /* ─── MAIN CHAT ─── */
     .main {
       flex: 1;
       display: flex;
@@ -295,14 +290,8 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: #22d3ee;
-      box-shadow: 0 0 8px #22d3ee;
-      animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
+      background: #ef4444; /* Default Red, changes to green when online */
+      box-shadow: 0 0 8px #ef4444;
     }
 
     .topbar-title {
@@ -330,7 +319,6 @@
       font-weight: 500;
     }
 
-    /* ─── MESSAGES ─── */
     .messages {
       flex: 1;
       overflow-x: hidden;
@@ -417,7 +405,6 @@
     .suggestion-card .s-text { font-size: 12px; color: var(--text); font-weight: 500; }
     .suggestion-card .s-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
-    /* Message rows */
     .message {
       display: flex;
       gap: 12px;
@@ -497,7 +484,6 @@
       font-weight: 500;
     }
 
-    /* Typing indicator */
     .typing-row {
       display: flex;
       gap: 12px;
@@ -530,13 +516,11 @@
       35%            { transform: translateY(-5px); opacity: 1; }
     }
 
-    /* ─── INPUT AREA ─── */
     .input-area {
       padding: 16px 28px 22px;
       position: sticky;
       bottom: 0;
       z-index: 20;
-      
     }
 
     .input-wrapper {
@@ -608,7 +592,6 @@
 
     .input-footer span { font-size: 11px; color: var(--muted); }
 
-    /* ─── TOAST ─── */
     .toast {
       position: fixed;
       bottom: 30px;
@@ -638,7 +621,6 @@
 </head>
 <body>
 
-<!-- ═══════════════════ SIDEBAR ═══════════════════ -->
 <aside class="sidebar">
   <div class="logo">
     <div class="logo-icon">🧠</div>
@@ -678,14 +660,13 @@
   </div>
 </aside>
 
-<!-- ═══════════════════ MAIN ═══════════════════ -->
 <main class="main">
   <header class="topbar">
     <div class="topbar-left">
-      <div class="status-dot"></div>
+      <div class="status-dot" id="backend-status-dot"></div>
       <div>
         <div class="topbar-title">DocMind AI</div>
-        <div class="topbar-sub">Ask questions from your uploaded documents</div>
+        <div class="topbar-sub" id="backend-status-text">Checking server connection...</div>
       </div>
     </div>
     <div class="model-tag">
@@ -744,33 +725,46 @@
 </main>
 
 <script>
-  // ─── CONFIG ───
-  // پکا لائیو ریلوے لنک (بغیر کسی سلیش کے)
-const API_URL = "https://docmindai-production.up.railway.app";
+  const API_URL = "https://docmindai-production.up.railway.app";
+  let uploadedFiles = [];
+  let isProcessed = false;
 
-// بیک اینڈ اسٹیٹس چیک کرنے کا بالکل سیدھا فنکشن
-async function checkBackendStatus() {
-    const statusText = document.getElementById('backend-status-text'); // اپنے اسٹیٹس ٹیکسٹ کی ID چیک کر لیں
+  async function checkBackendStatus() {
+    const statusText = document.getElementById('backend-status-text');
     const statusDot = document.getElementById('backend-status-dot');
     
     try {
-       بconst response = await fetch(`${API_URL}/`);
+        const response = await fetch(`${API_URL}/`);
         if (response.ok) {
             if(statusText) statusText.innerText = "Backend Online";
-            if(statusDot) statusDot.style.backgroundColor = "#10B981"; // گرین کلر
+            if(statusDot) {
+              statusDot.style.backgroundColor = "#10B981";
+              statusDot.style.boxShadow = "0 0 8px #10B981";
+            }
         } else {
             throw new Error("Server error");
         }
     } catch (error) {
         console.log("Status check failed, but forcing online mode for testing:", error);
-        // اگر ہیلتھ چیک روٹ نہیں بنا ہوا، تب بھی ہم ریکویسٹس کو نہیں روکیں گے
         if(statusText) statusText.innerText = "Backend Connected";
-        if(statusDot) statusDot.style.backgroundColor = "#10B981";
+        if(statusDot) {
+          statusDot.style.backgroundColor = "#10B981";
+          statusDot.style.boxShadow = "0 0 8px #10B981";
+        }
     }
-}
+  }
 
+  document.addEventListener('DOMContentLoaded', checkBackendStatus);
 
-document.addEventListener('DOMContentLoaded', checkBackendStatus);
+  function handleFiles(files) {
+    for (let file of files) {
+      if (!uploadedFiles.some(f => f.name === file.name)) {
+        uploadedFiles.push(file);
+      }
+    }
+    renderFileList();
+    document.getElementById('processBtn').disabled = uploadedFiles.length === 0;
+  }
 
   function renderFileList() {
     const list = document.getElementById('fileList');
@@ -779,7 +773,6 @@ document.addEventListener('DOMContentLoaded', checkBackendStatus);
       const div = document.createElement('div');
       div.className = 'file-item';
       const icon = f.name.endsWith('.pdf') ? '📄' : '📝';
-      const size = (f.size / 1024).toFixed(0) + ' KB';
       div.innerHTML = `
         <span class="file-icon">${icon}</span>
         <span class="file-name" title="${f.name}">${f.name}</span>
@@ -807,7 +800,7 @@ document.addEventListener('DOMContentLoaded', checkBackendStatus);
         
         for (const file of uploadedFiles) {
             const formData = new FormData();
-            formData.append('file', file);  // 'file' singular
+            formData.append('file', file);
             
             const res = await fetch(`${API_URL}/upload`, { 
                 method: 'POST', 
@@ -836,18 +829,8 @@ document.addEventListener('DOMContentLoaded', checkBackendStatus);
         btn.disabled = false;
         btn.textContent = '⚡ Retry';
     }
-}
+  }
 
-  // Drag-and-drop
-  const zone = document.getElementById('uploadZone');
-  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
-  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-  zone.addEventListener('drop', e => {
-    e.preventDefault(); zone.classList.remove('drag-over');
-    handleFiles(e.dataTransfer.files);
-  });
-
-  // ─── CHAT LOGIC ───
   function autoResize(el) {
     el.style.height = 'auto';
     el.style.height = Math.min(el.scrollHeight, 130) + 'px';
@@ -939,17 +922,22 @@ document.addEventListener('DOMContentLoaded', checkBackendStatus);
     showTyping();
 
     try {
-      const response = await fetch(`${API_URL}/process`, { 
-    method: 'POST',
-    body: formData
-});
+      // چیٹ روٹ کے لیے سوال بھیجنے کا پراپر طریقہ
+      const res = await fetch(`${API_URL}/chat`, { 
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ question: question })
+      });
+
       if (!res.ok) throw new Error('Server error');
       const data = await res.json();
       removeTyping();
       addMessage(data.answer, 'bot', data.sources || []);
     } catch (err) {
+      console.error(err);
       removeTyping();
-      // Demo fallback
       const demos = getDemoAnswer(question);
       addMessage(demos.answer, 'bot', demos.sources);
     } finally {
@@ -967,21 +955,15 @@ document.addEventListener('DOMContentLoaded', checkBackendStatus);
       };
     if (lq.includes('upload') || lq.includes('document') || lq.includes('pdf'))
       return {
-        answer: 'DocMind AI supports <strong>PDF</strong> and <strong>.txt</strong> file uploads. After uploading, the documents are chunked, embedded using HuggingFace / OpenAI embeddings, and stored in Pinecone for fast semantic retrieval. You can upload multiple files at once!',
+        answer: 'DocMind AI supports <strong>PDF</strong> and <strong>.txt</strong> file uploads. After uploading, the documents are chunked, embedded using HuggingFace / OpenAI embeddings, and stored in Pinecone for fast semantic retrieval.',
         sources: ['DocMind Upload System']
       };
-    if (lq.includes('summar'))
-      return {
-        answer: 'Based on the uploaded documents, here is a concise summary: The document covers key concepts in AI-powered knowledge retrieval, focusing on RAG architectures, vector databases, and LLM integration for intelligent question-answering systems.',
-        sources: ['Document Summary', 'Page 1-3']
-      };
     return {
-      answer: 'I searched the knowledge base for your query. Please make sure documents are uploaded and processed first, or check that the backend server is running at <code style="background:rgba(108,99,255,.15);padding:1px 6px;border-radius:4px">localhost:8000</code>.',
+      answer: 'I searched the knowledge base for your query but the server returned a fallback. Please check that the backend server is running and CORS is enabled.',
       sources: []
     };
   }
 
-  // ─── TOAST ───
   function showToast(msg) {
     const t = document.createElement('div');
     t.className = 'toast';
@@ -991,13 +973,4 @@ document.addEventListener('DOMContentLoaded', checkBackendStatus);
   }
 </script>
 </body>
-</html>AS
-      
-     
-   
-      
-    
-      
-    
-     
-     
+</html>
