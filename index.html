@@ -20,6 +20,8 @@
       --muted: #6b6d8a;
       --user-bubble: linear-gradient(135deg, #6c63ff, #a78bfa);
       --bot-bubble: #181929;
+      --rec-red: #ef4444;
+      --rec-glow: rgba(239, 68, 68, 0.4);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -458,6 +460,18 @@
       border-bottom-right-radius: 4px;
     }
 
+    .voice-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      color: var(--accent2);
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      margin-bottom: 4px;
+      opacity: 0.85;
+    }
+
     .sources {
       display: flex;
       flex-wrap: wrap;
@@ -555,6 +569,45 @@
 
     textarea::placeholder { color: var(--muted); }
 
+    .mic-btn {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 17px;
+      flex-shrink: 0;
+      transition: all 0.2s;
+      position: relative;
+      color: var(--text);
+    }
+
+    .mic-btn:hover:not(:disabled) {
+      border-color: rgba(108,99,255,0.4);
+      background: rgba(108,99,255,0.1);
+    }
+
+    .mic-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .mic-btn.recording {
+      background: var(--rec-red);
+      border-color: var(--rec-red);
+      color: white;
+      animation: pulseRec 1.2s ease-in-out infinite;
+    }
+
+    @keyframes pulseRec {
+      0%, 100% { box-shadow: 0 0 0 0 var(--rec-glow); }
+      50%      { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+    }
+
     .send-btn {
       width: 42px;
       height: 42px;
@@ -591,6 +644,11 @@
     }
 
     .input-footer span { font-size: 11px; color: var(--muted); }
+
+    #voiceStatus {
+      color: #ef4444;
+      font-weight: 600;
+    }
 
     .toast {
       position: fixed;
@@ -678,7 +736,7 @@
     <div class="welcome-screen" id="welcomeScreen">
       <div class="welcome-glyph">🧠</div>
       <h2>Welcome to <span>DocMind AI</span></h2>
-      <p>Upload your PDF or text documents on the left, then ask any question in natural language. I'll retrieve the most relevant context and give you precise, source-attributed answers.</p>
+      <p>Upload your PDF or text documents on the left, then ask any question in natural language — by typing or speaking. I'll retrieve the most relevant context and give you precise, source-attributed answers.</p>
       <div class="suggestions">
         <div class="suggestion-card" onclick="insertSuggestion('Summarize the main points of this document')">
           <div class="s-icon">📋</div>
@@ -706,6 +764,9 @@
 
   <div class="input-area">
     <div class="input-wrapper">
+      <button class="mic-btn" id="micBtn" onclick="toggleRecording()" title="Ask by voice">
+        🎤
+      </button>
       <textarea
         id="questionInput"
         rows="1"
@@ -718,7 +779,7 @@
       </button>
     </div>
     <div class="input-footer">
-      <span>Shift + Enter for new line</span>
+      <span id="footerHint">Shift + Enter for new line</span>
       <span id="charCount">0 / 2000</span>
     </div>
   </div>
@@ -728,6 +789,12 @@
   const API_URL = "https://uroojcode-docmind-ai.hf.space";
   let uploadedFiles = [];
   let isProcessed = false;
+
+  // ---------- Voice recording state ----------
+  let mediaRecorder = null;
+  let audioChunks = [];
+  let isRecording = false;
+  let speechEnabled = true; // set to false if you want answers to never be spoken aloud
 
   async function checkBackendStatus() {
     const statusText = document.getElementById('backend-status-text');
@@ -865,7 +932,7 @@
       </div>`;
   }
 
-  function addMessage(text, role, sources = []) {
+  function addMessage(text, role, sources = [], viaVoice = false) {
     const welcome = document.getElementById('welcomeScreen');
     if (welcome) welcome.remove();
 
@@ -875,6 +942,10 @@
 
     const avatarEmoji = role === 'bot' ? '🧠' : '👤';
 
+    const voiceTagHTML = viaVoice
+      ? `<div class="voice-tag">🎤 via voice</div>`
+      : '';
+
     const sourcesHTML = sources.length
       ? `<div class="sources"><span class="sources-label">Sources:</span>
          ${sources.map(s => `<span class="source-tag">📌 ${s}</span>`).join('')}</div>`
@@ -883,12 +954,14 @@
     row.innerHTML = `
       <div class="avatar">${avatarEmoji}</div>
       <div class="bubble-wrap">
+        ${voiceTagHTML}
         <div class="bubble">${text}</div>
         ${sourcesHTML}
       </div>`;
 
     msgs.appendChild(row);
     msgs.scrollTop = msgs.scrollHeight;
+    return row;
   }
 
   function showTyping() {
@@ -922,7 +995,6 @@
     showTyping();
 
     try {
-      // چیٹ روٹ کے لیے سوال بھیجنے کا پراپر طریقہ
       const res = await fetch(`${API_URL}/ask`, {
         method: 'POST',
         headers: {
@@ -944,6 +1016,130 @@
       btn.disabled = false;
       input.focus();
     }
+  }
+
+  // ---------- VOICE: recording + send to /ask-voice + speak answer ----------
+
+  function setMicState(state) {
+    // state: 'idle' | 'recording' | 'processing'
+    const micBtn = document.getElementById('micBtn');
+    const hint = document.getElementById('footerHint');
+
+    if (state === 'recording') {
+      micBtn.classList.add('recording');
+      micBtn.textContent = '⏹';
+      hint.innerHTML = `<span id="voiceStatus">● Recording… click mic to stop</span>`;
+    } else if (state === 'processing') {
+      micBtn.classList.remove('recording');
+      micBtn.disabled = true;
+      micBtn.textContent = '⏳';
+      hint.textContent = 'Transcribing your voice…';
+    } else {
+      micBtn.classList.remove('recording');
+      micBtn.disabled = false;
+      micBtn.textContent = '🎤';
+      hint.textContent = 'Shift + Enter for new line';
+    }
+  }
+
+  async function toggleRecording() {
+    if (isRecording) {
+      stopRecording();
+      return;
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showToast('❌ Voice input is not supported in this browser');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm')
+        ? 'audio/webm'
+        : '';
+      mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach(track => track.stop());
+        const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+        sendVoiceQuestion(audioBlob);
+      };
+
+      mediaRecorder.start();
+      isRecording = true;
+      setMicState('recording');
+    } catch (err) {
+      console.error(err);
+      showToast('❌ Microphone access denied or unavailable');
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      isRecording = false;
+    }
+  }
+
+  async function sendVoiceQuestion(audioBlob) {
+    setMicState('processing');
+    const sendBtn = document.getElementById('sendBtn');
+    sendBtn.disabled = true;
+    showTyping();
+
+    try {
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'voice-question.webm');
+
+      const res = await fetch(`${API_URL}/ask-voice`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || 'Voice request failed');
+      }
+
+      const data = await res.json();
+      removeTyping();
+
+      // Show what we heard you say, then the answer
+      addMessage(data.question || '(voice question)', 'user', [], true);
+      addMessage(data.answer, 'bot', data.sources || []);
+
+      speakAnswer(data.answer);
+    } catch (err) {
+      console.error(err);
+      removeTyping();
+      showToast(`❌ ${err.message}`);
+    } finally {
+      sendBtn.disabled = false;
+      setMicState('idle');
+    }
+  }
+
+  function speakAnswer(text) {
+    if (!speechEnabled) return;
+    if (!('speechSynthesis' in window)) return;
+
+    // Strip basic HTML tags (e.g. <strong>) before speaking
+    const plainText = text.replace(/<[^>]*>/g, '');
+
+    window.speechSynthesis.cancel(); // stop any previous speech
+    const utterance = new SpeechSynthesisUtterance(plainText);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    window.speechSynthesis.speak(utterance);
   }
 
   function getDemoAnswer(q) {
